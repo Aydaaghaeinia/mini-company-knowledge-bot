@@ -1,53 +1,100 @@
 import streamlit as st
 import requests
 
-# تنظیمات ظاهر صفحه
+# تنظیمات صفحه
 st.set_page_config(page_title="Mini Company Bot", page_icon="🤖", layout="centered")
 
-st.title("🤖 ربات دانش سازمانی (Mini Company)")
-st.markdown("سوال خود را بپرسید تا ربات بر اساس فایل‌های PDF پاسخ دهد.")
-st.divider()
+# CSS برای راست‌چین کردن (RTL) ظاهر برنامه
+st.markdown("""
+<style>
+* {
+    direction: rtl;
+    text-align: right;
+}
+.stChatMessage {
+    flex-direction: row-reverse;
+}
+</style>
+""", unsafe_allow_html=True)
 
-# ساخت حافظه برای نگه داشتن تاریخچه چت‌ها روی صفحه
+st.title("🤖 ربات دانش سازمانی (Soli AI Challenge)")
+st.caption("سیستم هوشمند پاسخگویی بر اساس مستندات محلی (RAG)")
+
+# منوی کناری
+with st.sidebar:
+    st.header("⚙️ تنظیمات")
+    if st.button("🗑️ پاک کردن تاریخچه چت", use_container_width=True):
+        st.session_state.messages = []
+        st.rerun()
+    
+    st.markdown("---")
+    st.markdown("""
+    **راهنما:**
+    ۱. ابتدا فایل `main.py` (FastAPI) را در یک ترمینال اجرا کنید.
+    ۲. سپس این رابط کاربری را اجرا کنید.
+    ۳. سوال خود را بپرسید تا فقط از روی اسناد پوشه `data/` جواب داده شود.
+    """)
+
+# مقداردهی اولیه تاریخچه پیام‌ها
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# نمایش پیام‌های قبلی در صفحه
+# نمایش پیام‌های قبلی
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# کادر دریافت سوال از کاربر
-if prompt := st.chat_input("سوال خود را از اسناد بپرسید..."):
-    
-    # ۱. نمایش سوال کاربر روی صفحه
-    with st.chat_message("user"):
-        st.markdown(prompt)
+# دریافت ورودی کاربر
+if prompt := st.chat_input("سوال خود را بپرسید (فارسی یا انگلیسی)..."):
+    # نمایش پیام کاربر
+    st.chat_message("user").markdown(prompt)
     st.session_state.messages.append({"role": "user", "content": prompt})
 
-    # ۲. ارتباط با بک‌اند (main.py) و نمایش جواب
+    # نمایش در حال تایپ برای دستیار
     with st.chat_message("assistant"):
-        with st.spinner("در حال جستجو در اسناد شرکت... 🔍"):
+        with st.spinner("در حال جستجو و تحلیل اسناد (via API)..."):
             try:
-                # فرستادن سوال به سرور فست‌ای‌پی‌آی
-                response = requests.post("http://127.0.0.1:8000/ask", json={"question": prompt})
+                # درخواست به سرور بک‌اند (FastAPI)
+                response = requests.post(
+                    "http://127.0.0.1:8000/ask",
+                    json={"question": prompt}
+                )
                 
                 if response.status_code == 200:
                     data = response.json()
-                    answer = data.get("answer", "")
-                    sources = data.get("sources_used", [])
-                    
-                    # زیباتر کردن خروجی و اضافه کردن منابع
-                    if sources:
-                        sources_text = f"\n\n---\n**📁 منابع استفاده شده:** {', '.join(sources)}"
+                    if "error" in data:
+                        st.error(data["error"])
                     else:
-                        sources_text = ""
+                        answer = data.get("answer", "خطا در دریافت پاسخ از سرور.")
+                        sources = data.get("sources", [])
                         
-                    full_response = answer + sources_text
-                    
-                    st.markdown(full_response)
-                    st.session_state.messages.append({"role": "assistant", "content": full_response})
+                        # نمایش پاسخ اصلی
+                        st.markdown(answer)
+                        
+                        # پردازش منابع (چون منابع لیستی از دیکشنری‌ها هستند)
+                        history_content = answer
+                        if sources:
+                            # استخراج نام فایل‌ها و حذف موارد تکراری با set
+                            source_names = list(set([s.get("file", "نامشخص") for s in sources]))
+                            
+                            with st.expander("📁 مشاهده منابع یافت‌شده"):
+                                for s in sources:
+                                    file_name = s.get("file", "نامشخص")
+                                    score = s.get("score", "N/A")
+                                    st.markdown(f"- 📄 **{file_name}** (دقت: {score})")
+                            
+                            # اضافه کردن منابع به متن تاریخچه برای رندر شدن صحیح در لود مجدد
+                            history_content += f"\n\n**📁 منابع:** {', '.join(source_names)}"
+                            
+                        # ذخیره در تاریخچه
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": history_content
+                        })
                 else:
-                    st.error("خطا: سرور بک‌اند پاسخ نمی‌دهد!")
+                    st.error(f"خطا در ارتباط با سرور بک‌اند! کد وضعیت: {response.status_code}")
+                    
+            except requests.exceptions.ConnectionError:
+                st.error("خطا: سرور بک‌اند خاموش است. لطفاً ابتدا فایل `main.py` را اجرا کنید.")
             except Exception as e:
-                st.error("ارتباط با سرور قطع است. مطمئن شوید فایل main.py در یک ترمینال دیگر در حال اجراست.")
+                st.error(f"خطای غیرمنتظره: {e}")
