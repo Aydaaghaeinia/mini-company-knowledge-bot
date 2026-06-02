@@ -1,9 +1,22 @@
-anthropic>=0.25.0
+# Web Framework & UI
+fastapi
+uvicorn
+streamlit
+requests
+pydantic
 
-# برای رابط وب (اختیاری)
-fastapi>=0.110.0
-uvicorn>=0.29.0
-python-multipart>=0.0.9
+# AI Framework (LangChain)
+langchain
+langchain-community
 
-# برای خواندن PDF (اختیاری)
-pdfplumber>=0.11.0
+# Vector Store
+faiss-cpu
+
+# Local Models (HuggingFace)
+transformers
+sentence-transformers
+torch
+accelerate
+
+# Document Loaders
+pypdf
